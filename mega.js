@@ -1,6 +1,7 @@
 const mega = require('megajs');
 const crypto = require('crypto');
 const path = require('path');
+const fs = require('fs');
 const config = require('./config.js');
 
 function generateUA() {
@@ -21,29 +22,54 @@ const auth = {
 
 const upload = (pth) => {
     return new Promise((resolve, reject) => {
+        // Validate file path
+        if (!fs.existsSync(pth)) {
+            return reject(new Error('The file path does not exist.'));
+        }
+
         const myre = `${crypto.randomBytes(5).toString('hex')}${path.extname(pth)}`;
         const storage = new mega.Storage(auth);
 
         storage.on('ready', () => {
-            const Json = require(pth);
+            let Json;
+            try {
+                // Validate JSON file
+                Json = require(pth);
+            } catch (err) {
+                return reject(new Error('Invalid JSON file provided.'));
+            }
+
             const Content = Buffer.from(JSON.stringify(Json));
-            const stream = storage.upload({ name: myre, size: Content.length, allowUploadBuffering: true });
+            const size = Buffer.byteLength(Content);
+
+            // Validate file size
+            if (size <= 0) {
+                return reject(new Error('File size must be greater than zero.'));
+            }
+
+            // Log upload options for debugging
+            console.log('Upload options:', { name: myre, size });
+
+            const stream = storage.upload({ name: myre, size, allowUploadBuffering: true });
             stream.end(Content);
 
             stream.on('complete', (file) => {
+                // Generate and return file link
                 file.link((err, url) => {
-                    if (err) reject(err);
-                    else resolve(url);
+                    if (err) {
+                        return reject(new Error('Error generating file link: ' + err.message));
+                    }
+                    resolve(url);
                 });
             });
 
             stream.on('error', (error) => {
-                reject(error);
+                reject(new Error('Error during file upload: ' + error.message));
             });
         });
 
         storage.on('error', (error) => {
-            reject(error);
+            reject(new Error('Error initializing storage: ' + error.message));
         });
     });
 };
